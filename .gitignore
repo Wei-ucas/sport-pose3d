@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Game data (large binary files)
+games/*/videos/
+games/*/prediction/
+games/*/vis/
+games/*/output/
+
+# Model weights & checkpoints
+cpks/
+*.pth
+*.onnx
+*.engine
+*.trt
+
+# Pickle data
+*.pkl
+games/
+cpks/
+cpks*
+
+
+# Misc
+*.bak
+*.bk
+*.tmp
