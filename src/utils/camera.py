@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 
-from .constant import court_ground_corners, court_top_corners
+from . import constant
 
 
 def load_camera_params(intri_path, extri_path, camera_ids):
@@ -28,28 +28,34 @@ def load_camera_params(intri_path, extri_path, camera_ids):
     name_node = intri_f.getNode("names")
     for i in range(name_node.size()):
         val = name_node.at(i).string()
-        if val == '':
+        if val == "":
             val = str(int(name_node.at(i).real()))
-        if val != 'none':
+        if val != "none":
             camera_names.append(val)
     for camera_id in camera_ids:
         K = intri_f.getNode(f"K_{camera_id}").mat()
         dist = intri_f.getNode(f"dist_{camera_id}").mat()
-        camera_params['K'].append(K)
-        camera_params['invK'].append(np.linalg.inv(K))
-        camera_params['dist'].append(dist)
+        camera_params["K"].append(K)
+        camera_params["invK"].append(np.linalg.inv(K))
+        camera_params["dist"].append(dist)
         if extri_path is not None:
-            camera_params['rvec'].append(extri_f.getNode("R_{}".format(camera_id)).mat())
-            camera_params['R'].append(cv2.Rodrigues(camera_params['rvec'][-1])[0])
-            camera_params['T'].append(extri_f.getNode("T_{}".format(camera_id)).mat())
-            camera_params['RT'].append(cv2.hconcat([camera_params['R'][-1], camera_params['T'][-1]]))
-            camera_params['P'].append(
-                camera_params['K'][-1] @ np.hstack((camera_params['R'][-1], camera_params['T'][-1])))
+            camera_params["rvec"].append(
+                extri_f.getNode("R_{}".format(camera_id)).mat()
+            )
+            camera_params["R"].append(cv2.Rodrigues(camera_params["rvec"][-1])[0])
+            camera_params["T"].append(extri_f.getNode("T_{}".format(camera_id)).mat())
+            camera_params["RT"].append(
+                cv2.hconcat([camera_params["R"][-1], camera_params["T"][-1]])
+            )
+            camera_params["P"].append(
+                camera_params["K"][-1]
+                @ np.hstack((camera_params["R"][-1], camera_params["T"][-1]))
+            )
     for key in camera_params:
-        if key != 'dist':
+        if key != "dist":
             camera_params[key] = np.array(camera_params[key])
-    camera_params['view_names'] = camera_ids
-    camera_params['name2index'] = {name: i for i, name in enumerate(camera_ids)}
+    camera_params["view_names"] = camera_ids
+    camera_params["name2index"] = {name: i for i, name in enumerate(camera_ids)}
     return camera_params
 
 
@@ -65,9 +71,7 @@ def save_camera_params(camera_params, save_dir):
     for camera_id in camera_ids:
         fs_intri.write(
             f"K_{camera_id}",
-            (
-                camera_params[camera_id]["K"]  # type: ignore
-            ),
+            (camera_params[camera_id]["K"]),  # type: ignore
         )
         fs_intri.write(
             f"dist_{camera_id}",
@@ -78,15 +82,11 @@ def save_camera_params(camera_params, save_dir):
         )
         fs_extri.write(
             f"R_{camera_id}",
-            (
-                camera_params[camera_id]["Rvec"]  # type: ignore
-            ),
+            (camera_params[camera_id]["Rvec"]),  # type: ignore
         )
         fs_extri.write(
             f"T_{camera_id}",
-            (
-                camera_params[camera_id]["T"]  # type: ignore
-            ),
+            (camera_params[camera_id]["T"]),  # type: ignore
         )
     fs_intri.release()
     fs_extri.release()
@@ -137,15 +137,16 @@ def get_camera_by_id(camera_params: Dict, view_id: str):
     camera_index = camera_params.get("name2index", {}).get(view_id)
     if camera_index == -1:
         raise ValueError(f"camera {view_id} not in {camera_params}")
-    selected_camera = {
-    }
+    selected_camera = {}
     for key, v in camera_params.items():
         if isinstance(v, np.ndarray) or isinstance(v, list):
             selected_camera[key] = v[camera_index]
     return selected_camera
 
 
-def image2ground(points: np.ndarray, camera_params: Dict[str, np.ndarray] = None, view_id=0):
+def image2ground(
+    points: np.ndarray, camera_params: Dict[str, np.ndarray] = None, view_id=0
+):
     """
     unproject points from image coordinate to world coordinate on ground plane (z=0)
     Args:
@@ -162,21 +163,21 @@ def image2ground(points: np.ndarray, camera_params: Dict[str, np.ndarray] = None
     """
     assert camera_params is not None
     points = np.array(points, dtype=np.float32)
-    K = camera_params['K']
-    dist = camera_params['dist']
+    K = camera_params["K"]
+    dist = camera_params["dist"]
     # points = cv2.undistortPoints(points[None, :, :], K, dist, P=K)
     points = undistort_points(points, K, dist)
 
     points = cv2.convertPointsToHomogeneous(points)
     points = points[:, 0, :, None]
-    if 'inv_p' in camera_params:
-        points = camera_params['inv_p'] @ points
+    if "inv_p" in camera_params:
+        points = camera_params["inv_p"] @ points
     else:
         # K = camera_params['K'][view_id]
         # dist = camera_params['dist'][view_id]
         # R = camera_params['R'][view_id]
         # T = camera_params['T'][view_id]
-        RT = camera_params['RT']  # (3, 4)
+        RT = camera_params["RT"]  # (3, 4)
         # points = np.array(points, dtype=np.float32)
         # points = cv2.undistortPoints(points[None, :, :], K, dist, P=K)
         # points = cv2.convertPointsToHomogeneous(points)
@@ -208,7 +209,9 @@ def camera_project(points: np.ndarray, camera: dict) -> np.ndarray:
 
 
 def get_basketball_outer_range(camera_params: Dict) -> List:
-    all_court_corners = np.concatenate([court_top_corners, court_ground_corners], axis=0)
+    all_court_corners = np.concatenate(
+        [constant.court_top_corners, constant.court_ground_corners], axis=0
+    )
     # court_image_range = {}
     # for key, param in camera_params:
     # project points to image
@@ -224,10 +227,10 @@ def get_basketball_outer_range(camera_params: Dict) -> List:
     return court_range
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_camera_params = load_camera_params(
         "D:\\workspace\\gits\\BasketballNet\\workdir\\prepare\\camera\\0303_201122\\intri.yml",
-        "D:\\workspace\\gits\\BasketballNet\\workdir\\prepare\\camera\\0303_201122\\extri.yml"
+        "D:\\workspace\\gits\\BasketballNet\\workdir\\prepare\\camera\\0303_201122\\extri.yml",
     )
 
     test_points = np.array([[713, 415], [905, 638]], dtype=np.float32)

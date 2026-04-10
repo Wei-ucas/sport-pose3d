@@ -14,8 +14,8 @@ def player_to_easymocap_format(players: Dict[str, List]) \
     annots = {}
     # only use [1,2,5,8,17,18] for 2d keypoints
     # score mask
-    score_mask = np.zeros((25,), dtype=np.float32)
-    score_mask[[1, 2, 5, 8, 17, 18]] = 1.0
+    # score_mask = np.zeros((25,), dtype=np.float32)
+    # score_mask[[1, 2, 5, 8, 17, 18]] = 1.0
     for camera_id, player_list in players.items():
         annots[camera_id] = []
         for player in player_list:
@@ -23,7 +23,7 @@ def player_to_easymocap_format(players: Dict[str, List]) \
             if k2d is not None and k2d.shape[0] == 17:
                 k2d = coco17tobody25(k2d)
             assert k2d.shape[0] == 25, f"keypoints should be 25, but got {k2d.shape[0]} for player {player.tracking_id} in camera {camera_id}"
-            k2d[:, 2] *= score_mask  # set the score to 0 for other keypoints
+            # k2d[:, 2] *= score_mask  # set the score to 0 for other keypoints
             annots[camera_id].append(
                 {'keypoints': k2d, 'bbox': player.bbox, 'person_id': player.tracking_id})
     return annots

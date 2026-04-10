@@ -9,7 +9,8 @@ AUDIO_MATCH_CFGS = {
     "bin_stride": 128,  # the audio feature bin stride, bin_stride/sample_rate is the audio matching resolution
     "bin_length": 256,  # the audio feature bin size
     "n_bins_for_matching": torch.inf,  # number of bins used for matching
-    "audio_trim_length": 60 * 20  # the audio will be trimed no longer then this value (seconds)
+    "audio_trim_length": 60
+    * 20,  # the audio will be trimed no longer then this value (seconds)
 }
 
 
@@ -17,19 +18,26 @@ class AudioMatcher:
 
     def __init__(self, base_audio_file, cfg):
         # self.base_audio, sample_rate = ta.load(base_audio_file, normalize=True)
-        self.sample_rate = cfg['sample_rate']
-        self.nfft = cfg['nfft']
-        self.bin_stride = cfg['bin_stride']
-        self.bin_length = cfg['bin_length']
-        self.max_frames = cfg['n_bins_for_matching']
-        self.audio_trim_length = cfg['audio_trim_length']
+        self.sample_rate = cfg["sample_rate"]
+        self.nfft = cfg["nfft"]
+        self.bin_stride = cfg["bin_stride"]
+        self.bin_length = cfg["bin_length"]
+        self.max_frames = cfg["n_bins_for_matching"]
+        self.audio_trim_length = cfg["audio_trim_length"]
         # assert sample_rate == self.sample_rate
 
         self.base_audio_wave = self.load_audio(base_audio_file)
 
-        self.MFCC = ta.transforms.MFCC(sample_rate=self.sample_rate, n_mfcc=26,
-                                       melkwargs={"n_fft": self.nfft, "hop_length": self.bin_stride, "n_mels": 26,
-                                                  "center": False}).cuda()
+        self.MFCC = ta.transforms.MFCC(
+            sample_rate=self.sample_rate,
+            n_mfcc=26,
+            melkwargs={
+                "n_fft": self.nfft,
+                "hop_length": self.bin_stride,
+                "n_mels": 26,
+                "center": False,
+            },
+        )  # CPU: torch.stft has cuFFT issues on some CUDA versions
         self.base_audio_mfcc = self.mfcc_normalize(self.MFCC(self.base_audio_wave))
 
     def cross_correlation_cuda(self, mfcc1, mfcc2, nframes):
@@ -39,13 +47,21 @@ class AudioMatcher:
         o_max = n1 - nframes + 1
         mfcc1_torch = mfcc1.cuda()
         mfcc2_torch = mfcc2.cuda()
-        c_right = \
-            f.conv1d(mfcc2_torch.transpose(0, 1)[None], mfcc1_torch[:nframes].transpose(0, 1)[:, None], None, stride=1,
-                     groups=26)[0].norm(dim=0)
+        c_right = f.conv1d(
+            mfcc2_torch.transpose(0, 1)[None],
+            mfcc1_torch[:nframes].transpose(0, 1)[:, None],
+            None,
+            stride=1,
+            groups=26,
+        )[0].norm(dim=0)
         c_right = c_right[1:].__reversed__()
-        c_left = \
-            f.conv1d(mfcc1_torch.transpose(0, 1)[None], mfcc2_torch[:nframes].transpose(0, 1)[:, None], None, stride=1,
-                     groups=26)[0].norm(dim=0)
+        c_left = f.conv1d(
+            mfcc1_torch.transpose(0, 1)[None],
+            mfcc2_torch[:nframes].transpose(0, 1)[:, None],
+            None,
+            stride=1,
+            groups=26,
+        )[0].norm(dim=0)
         c = torch.cat([c_left, c_right])
         return c, o_min, o_max
 
@@ -53,7 +69,7 @@ class AudioMatcher:
         assert audio_f.endswith(".wav")
         audio_wave, sample_rate = ta.load(audio_f, normalize=True)
         assert sample_rate == self.sample_rate
-        return audio_wave.cuda()
+        return audio_wave  # keep on CPU for MFCC computation
 
     def mfcc_normalize(self, mfcc):
         mfcc = mfcc[0].transpose(1, 0)
@@ -73,8 +89,9 @@ class AudioMatcher:
                 "Not enough audio to analyse - try longer clips, less trimming, or higher resolution."
             )
 
-        c, earliest_frame_offset, latest_frame_offset = self.cross_correlation_cuda(mfcc1, mfcc2,
-                                                                                    nframes=correl_nframes)
+        c, earliest_frame_offset, latest_frame_offset = self.cross_correlation_cuda(
+            mfcc1, mfcc2, nframes=correl_nframes
+        )
         # c = c/np.sqrt(correl_nframes)
         # max_k_index = np.argmax(c)
         max_k_index = torch.argmax(c)

@@ -27,11 +27,9 @@ def __interpolate_np_nan__(data):
     nan_mask = np.isnan(data)
     ret_data = np.copy(data)
     try:
-        ret_data[nan_mask] = \
-            np.interp(
-                np.nonzero(nan_mask)[0],
-                np.nonzero(~nan_mask)[0],
-                data[~nan_mask])
+        ret_data[nan_mask] = np.interp(
+            np.nonzero(nan_mask)[0], np.nonzero(~nan_mask)[0], data[~nan_mask]
+        )
     except ValueError:
         pass
     return ret_data
@@ -50,16 +48,15 @@ def count_masked_nan(points: np.ndarray, mask: np.ndarray) -> int:
         int: number of np.nan whose mask is 1.
     """
     squeezed_points = np.sum(points, axis=-1, keepdims=False)
-    count = np.count_nonzero(
-        np.logical_and(np.isnan(squeezed_points), mask != 0))
+    count = np.count_nonzero(np.logical_and(np.isnan(squeezed_points), mask != 0))
     return count
 
 
 class NanInterpolation:
 
-    def __init__(self,
-                 verbose: bool = True,
-                 logger: Union[None, str, logging.Logger] = None) -> None:
+    def __init__(
+        self, verbose: bool = True, logger: Union[None, str, logging.Logger] = None
+    ) -> None:
         """Assign keypoints3d values by interpolation, replace nan points.
 
         Args:
@@ -73,9 +70,9 @@ class NanInterpolation:
         self.verbose = verbose
         self.logger = logger if logger is not None else logging.getLogger(__name__)
 
-    def optimize_trajectory(self, trajectories: np.ndarray,
-                            trajectory_mask: np.ndarray,
-                            **kwargs: dict) -> np.ndarray:
+    def optimize_trajectory(
+        self, trajectories: np.ndarray, trajectory_mask: np.ndarray, **kwargs: dict
+    ) -> np.ndarray:
         """Forward function of keypoints3d optimizer.
 
         Args:
@@ -89,7 +86,7 @@ class NanInterpolation:
         """
         # if keypoints3d.dtype == 'numpy':
         keypoints3d_np = trajectories
-        frame_number, person_number,  _ = keypoints3d_np.shape
+        frame_number, person_number, _ = keypoints3d_np.shape
         # else:
         #     keypoints3d_np = keypoints3d.to_numpy()
         #     self.logger.warning(
@@ -111,16 +108,17 @@ class NanInterpolation:
             interp_nan_count += input_nan_count - output_nan_count
         ret_keypoints3d = ret_kps_arr
         self.logger.info(
-            f'How many nans are found after mask: {total_nan_count}' +
-            f'How many nans are interpolated: {interp_nan_count}')
+            f"How many nans are found after mask: {total_nan_count}"
+            + f"How many nans are interpolated: {interp_nan_count}"
+        )
         return ret_keypoints3d
 
 
 class TrajectoryOptimizer:
 
-    def __init__(self,
-                 n_max_frame: int = 9,
-                 logger: Union[None, str, logging.Logger] = None) -> None:
+    def __init__(
+        self, n_max_frame: int = 9, logger: Union[None, str, logging.Logger] = None
+    ) -> None:
         """Look for kps3d that deviate from the trajectory, and replace it by
         interpolation.
 
@@ -137,8 +135,9 @@ class TrajectoryOptimizer:
         self.n_max_frame = n_max_frame
         self.logger = logger if logger is not None else logging.getLogger(__name__)
 
-    def optimize_trajectory(self, trajectories: np.ndarray, trajectory_masks: np.ndarray,
-                            **kwargs: dict) -> np.ndarray:
+    def optimize_trajectory(
+        self, trajectories: np.ndarray, trajectory_masks: np.ndarray, **kwargs: dict
+    ) -> np.ndarray:
         """Forward function of keypoints3d optimizer.
 
         Args:
@@ -159,10 +158,9 @@ class TrajectoryOptimizer:
             location_mask = trajectory_masks[:, person_idx]
             optimized_kps3d = self.check_kps3d(location_arr, location_mask)
             ret_location_arr[:, person_idx] = optimized_kps3d
-        return ret_location_arr[:,:,0]
+        return ret_location_arr[:, :, 0]
 
-    def check_kps3d(self, kps3d_arr: np.ndarray,
-                    kps3d_mask: np.ndarray) -> np.ndarray:
+    def check_kps3d(self, kps3d_arr: np.ndarray, kps3d_mask: np.ndarray) -> np.ndarray:
         kps3d = kps3d_arr[..., :2]
         n_frame = kps3d_arr.shape[0]
         n_kps3d = kps3d_arr.shape[1]
@@ -177,18 +175,28 @@ class TrajectoryOptimizer:
                 for i in range(1, self.n_max_frame):
                     if frame_idx - i < 1:
                         break
-                    curr_dist = np.linalg.norm(
-                        kps3d[frame_idx, kps3d_idx] -
-                        kps3d[frame_idx - i, kps3d_idx],
-                        ord=2) / i
+                    curr_dist = (
+                        np.linalg.norm(
+                            kps3d[frame_idx, kps3d_idx]
+                            - kps3d[frame_idx - i, kps3d_idx],
+                            ord=2,
+                        )
+                        / i
+                    )
                     if curr_dist > 0:
-                        for j in range(frame_idx - i - 1,
-                                       frame_idx - i - self.n_max_frame, -1):
+                        for j in range(
+                            frame_idx - i - 1, frame_idx - i - self.n_max_frame, -1
+                        ):
                             if not np.isnan(kps3d[j, kps3d_idx]).all():
-                                dist_threshold = 2 * np.linalg.norm(
-                                    kps3d[frame_idx - i, kps3d_idx] -
-                                    kps3d[j, kps3d_idx],
-                                    ord=2) / (frame_idx - i - j)
+                                dist_threshold = (
+                                    2
+                                    * np.linalg.norm(
+                                        kps3d[frame_idx - i, kps3d_idx]
+                                        - kps3d[j, kps3d_idx],
+                                        ord=2,
+                                    )
+                                    / (frame_idx - i - j)
+                                )
                                 if curr_dist > dist_threshold:
                                     kps3d[frame_idx, kps3d_idx] = np.nan
                                 calc_curr_dist = False
@@ -255,13 +263,17 @@ class K3dFilter:
 
     def court_filter(self, k3ds):
         invalid = np.logical_or(
-            np.logical_or(k3ds[..., 0] < self.x_range[0], k3ds[..., 0] > self.x_range[1]),
-            np.logical_or(k3ds[..., 1] < self.y_range[0], k3ds[..., 1] > self.y_range[1]),
+            np.logical_or(
+                k3ds[..., 0] < self.x_range[0], k3ds[..., 0] > self.x_range[1]
+            ),
+            np.logical_or(
+                k3ds[..., 1] < self.y_range[0], k3ds[..., 1] > self.y_range[1]
+            ),
             # np.logical_or(k3ds[..., 2] < self.z_range[0], k3ds[..., 2] > self.z_range[1])
         )
         invalid_k3ds = np.any(invalid, axis=-1)
         if np.any(invalid):
-            print(f'court filter: {np.sum(invalid_k3ds)} invalid k3ds')
+            print(f"court filter: {np.sum(invalid_k3ds)} invalid k3ds")
         k3ds[invalid_k3ds] = np.nan
         return k3ds
 
@@ -302,47 +314,124 @@ class PlayerOptimizer(BaseModule):
 
     def __init__(self, trajectory_range: int = 5) -> None:
         super().__init__("PlayerOptimizer")
-        self.traj_optim = TrajectoryOptimizer(n_max_frame=trajectory_range, logger=self.logger)
+        self.traj_optim = TrajectoryOptimizer(
+            n_max_frame=trajectory_range, logger=self.logger
+        )
         self.nan_interp = NanInterpolation(logger=self.logger)
         self.filter = K3dFilter(logger=self.logger)
 
-    def optimize(self, mv_frames: List[MvFrame], player_ids=None):
-        # mf_mp_k3ds = {}
-        if player_ids is None:
-            player_ids = list(mv_frames[0].player_location.keys())
-        # mf_mp_k3ds = np.zeros((len(mv_frames), num_players, 17, 4))
-        mf_mp_k3ds = {pid: np.zeros((len(mv_frames), 3)) for pid in player_ids}
+    def _select_fields(self, use_reid: bool):
+        if use_reid:
+            return "matched_player_location", "matched_player_k3d"
+        return "tracked_player_location", "tracked_player_k3d"
+
+    def _collect_player_ids(
+        self,
+        mv_frames: List[MvFrame],
+        location_field: str,
+        k3d_field: str,
+        player_ids=None,
+    ):
+        if player_ids is not None:
+            return list(player_ids)
+        all_ids = set()
+        for mv_frame in mv_frames:
+            all_ids.update(getattr(mv_frame, location_field, {}).keys())
+            all_ids.update(getattr(mv_frame, k3d_field, {}).keys())
+        return list(all_ids)
+
+    def _optimize_locations(
+        self, mv_frames: List[MvFrame], player_ids: List[int], location_field: str
+    ):
+        if len(player_ids) == 0:
+            return
+        n_frame = len(mv_frames)
+        mf_mp_loc = {pid: np.zeros((n_frame, 3)) for pid in player_ids}
         for f, mv_frame in enumerate(mv_frames):
-            frame_player_ids = set(list(mv_frame.player_location.keys()) + player_ids)
-            player_ids = list(frame_player_ids)
-            for i, player_id in enumerate(frame_player_ids):
-                if player_id not in mf_mp_k3ds.keys():
-                    mf_mp_k3ds[player_id] = np.zeros((len(mv_frames), 3))
-                if player_id not in mv_frame.player_location.keys():
-                    continue
-                mf_mp_k3ds[player_id][f] = mv_frame.player_location[player_id]
-        player_ids = list(mf_mp_k3ds.keys())
-        mf_mp_k3ds = np.stack(list(mf_mp_k3ds.values()), axis=1)  # n_frame, n_person, 3
+            frame_locations = getattr(mv_frame, location_field, {})
+            for player_id in player_ids:
+                if player_id in frame_locations:
+                    mf_mp_loc[player_id][f] = frame_locations[player_id]
 
-        # fill all zero with nan
-        mf_mp_k3ds[mf_mp_k3ds == 0] = np.nan
+        mf_mp_loc = np.stack(
+            [mf_mp_loc[pid] for pid in player_ids], axis=1
+        )  # n_frame, n_person, 3
+        mf_mp_loc[mf_mp_loc == 0] = np.nan
+        mf_mp_loc = self.filter.filter(mf_mp_loc)
 
-        mf_mp_k3ds = self.filter.filter(mf_mp_k3ds)
+        loc_mask = np.ones_like(mf_mp_loc[..., 0])
+        mf_mp_loc = self.traj_optim.optimize_trajectory(mf_mp_loc, loc_mask)
+        mf_mp_loc = self.nan_interp.optimize_trajectory(mf_mp_loc, loc_mask)
+        mf_mp_loc = self.filter.filter(mf_mp_loc)
+        mf_mp_loc = self.nan_interp.optimize_trajectory(mf_mp_loc, loc_mask)
+        mf_mp_loc[np.isnan(mf_mp_loc)] = 0
 
-        mf_mp_k3ds_mask = np.ones_like(mf_mp_k3ds[..., 0])
-        # mf_mp_k3ds = self.nan_interp.optimize_keypoints3d(mf_mp_k3ds, mf_mp_k3ds_mask)
-        mf_mp_k3ds = self.traj_optim.optimize_trajectory(mf_mp_k3ds, mf_mp_k3ds_mask)
-        mf_mp_k3ds = self.nan_interp.optimize_trajectory(mf_mp_k3ds, mf_mp_k3ds_mask)
-        mf_mp_k3ds = self.filter.filter(mf_mp_k3ds)
-        mf_mp_k3ds = self.nan_interp.optimize_trajectory(mf_mp_k3ds, mf_mp_k3ds_mask)
-
-        # fill nan with zero
-        mf_mp_k3ds[np.isnan(mf_mp_k3ds)] = 0
-
-        # update mv_frames
         for i, mv_frame in enumerate(mv_frames):
+            target_locations = getattr(mv_frame, location_field, {})
             for j, pid in enumerate(player_ids):
-                # k3d = mf_mp_k3ds[i, j]
-                mv_frame.player_location[pid] = mf_mp_k3ds[i, j]
-                mv_frame.no_name_player_location = []
+                target_locations[pid] = mf_mp_loc[i, j]
+            setattr(mv_frame, location_field, target_locations)
+
+    def _optimize_k3d(
+        self, mv_frames: List[MvFrame], player_ids: List[int], k3d_field: str
+    ):
+        if len(player_ids) == 0:
+            return
+
+        n_frame = len(mv_frames)
+        n_kps = None
+        for mv_frame in mv_frames:
+            frame_k3d = getattr(mv_frame, k3d_field, {})
+            for k3d in frame_k3d.values():
+                if isinstance(k3d, np.ndarray) and k3d.ndim == 2 and k3d.shape[1] >= 4:
+                    n_kps = k3d.shape[0]
+                    break
+            if n_kps is not None:
+                break
+
+        if n_kps is None:
+            return
+
+        mf_mp_k3d = np.zeros((n_frame, len(player_ids), n_kps, 4), dtype=np.float32)
+        for f, mv_frame in enumerate(mv_frames):
+            frame_k3d = getattr(mv_frame, k3d_field, {})
+            for j, pid in enumerate(player_ids):
+                if pid in frame_k3d and isinstance(frame_k3d[pid], np.ndarray):
+                    mf_mp_k3d[f, j] = frame_k3d[pid]
+
+        conf = mf_mp_k3d[..., 3:4]
+        xyz = mf_mp_k3d[..., :3]
+        xyz[conf[..., 0] <= 0] = np.nan
+
+        xyz_flat = xyz.reshape(n_frame, -1, 3)
+        xyz_mask = np.ones_like(xyz_flat[..., 0])
+        xyz_flat = self.traj_optim.optimize_trajectory(xyz_flat, xyz_mask)
+        xyz_flat = self.nan_interp.optimize_trajectory(xyz_flat, xyz_mask)
+        xyz_flat = self.nan_interp.optimize_trajectory(xyz_flat, xyz_mask)
+        xyz_flat[np.isnan(xyz_flat)] = 0
+        xyz = xyz_flat.reshape(n_frame, len(player_ids), n_kps, 3)
+
+        for f, mv_frame in enumerate(mv_frames):
+            target_k3d = getattr(mv_frame, k3d_field, {})
+            for j, pid in enumerate(player_ids):
+                if pid in target_k3d:
+                    target_k3d[pid] = np.concatenate([xyz[f, j], conf[f, j]], axis=-1)
+            setattr(mv_frame, k3d_field, target_k3d)
+
+    def optimize(
+        self, mv_frames: List[MvFrame], player_ids=None, use_reid: bool = True
+    ):
+        location_field, k3d_field = self._select_fields(use_reid)
+        player_ids = self._collect_player_ids(
+            mv_frames, location_field, k3d_field, player_ids
+        )
+
+        self._optimize_locations(mv_frames, player_ids, location_field)
+        if not use_reid:
+            self._optimize_k3d(mv_frames, player_ids, k3d_field)
+
+        # backward compatibility for downstream analysis/visualization modules
+        for mv_frame in mv_frames:
+            mv_frame.player_location = getattr(mv_frame, location_field, {})
+
         return mv_frames, player_ids
