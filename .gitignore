@@ -61,3 +61,5 @@ exported-results/
 *.bak
 *.bk
 *.tmp
+*.c3d
+*.html
