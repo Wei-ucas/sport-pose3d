@@ -18,6 +18,16 @@ from src.modules.player_matcher.k3d_match import Player3DMatcher
 MAX_MATCHING_BATCH = 5000
 
 
+def _count_sampled_frames(start_frame: int, end_frame: int, frame_step: int) -> int:
+    if end_frame <= start_frame:
+        return 0
+    first_sample = 0 if start_frame <= 0 else ((start_frame + frame_step - 1) // frame_step) * frame_step
+    if first_sample >= end_frame:
+        return 0
+    last_sample = ((end_frame - 1) // frame_step) * frame_step
+    return ((last_sample - first_sample) // frame_step) + 1
+
+
 def multiview_frame_reader(
     data_path_cfg: GamePath,
     view_time_offset: Dict[int, int] = None,
@@ -32,12 +42,14 @@ def multiview_frame_reader(
             pkl_path = data_path_cfg.get_reid_path(view_id)
         else:
             pkl_path = data_path_cfg.get_detection_path(view_id)
+        raw_frame_offset = view_time_offset.get(view_id, 0) if view_time_offset else 0
+        sampled_frame_offset = _count_sampled_frames(0, raw_frame_offset, data_path_cfg.frame_step)
         frame_reader = FrameInput(
             view_id=view_id,
             pkl_data_path=pkl_path,
             camera_path=data_path_cfg.camera_path,
             frame_downsample_rate=data_path_cfg.frame_step,
-            frame_offset=view_time_offset.get(view_id, 0) if view_time_offset else 0,
+            frame_offset=sampled_frame_offset,
         )
         frame_reader_dict[view_id] = frame_reader
     frame_id = 0
@@ -99,7 +111,7 @@ def triangulation_processor_raw(data_path_cfg: GamePath, use_reid: bool = True):
     triangulator = PlayerTriangulator(
         camera_params,
         data_path_cfg.view_list,
-        pose_conversion="coco17",
+        pose_conversion="body25",
         dist_max=0.1,
         num_players=len(player_id2name),
     )
@@ -159,7 +171,7 @@ def triangulation_processor_match(
     player_id2name = data_path_cfg.get_player_info()
 
     matcher = Player3DMatcher(
-        track_distance=0.5,
+        track_distance=1,
         reid_conf_threshold=0.1,
         reid_dist_threshold=500,
         appear_frame_thr=200,

@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--max_frame_num", type=int, default=-1)
     parser.add_argument("--c3d_path", type=str, default=None)
     parser.add_argument("--confidence_threshold", type=float, default=0.1)
+    parser.add_argument("--pose_model", type=str, default="rtmpose")
     args = parser.parse_args()
 
     config_root_logger()
@@ -46,6 +47,7 @@ def main():
         video_type=args.video_type,
         frame_step=args.frame_step,
         max_frame_num=args.max_frame_num,
+        pose_model_name=args.pose_model,
     )
     c3d_alignment_processor(
         data_path_cfg=data_cfg,

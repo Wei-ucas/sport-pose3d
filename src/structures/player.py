@@ -69,10 +69,11 @@ class Player:
         Sets the player's pose.
 
         Args:
-            pose (np.ndarray): 17 keypoints in 2D image coordinates [[x, y, score], ...].
+            pose (np.ndarray): N keypoints in 2D image coordinates [[x, y, score], ...].
         """
         assert isinstance(pose, np.ndarray), f'pose should be np.ndarray, but got {type(pose)}'
-        assert pose.shape == (17, 3), f'pose shape should be (17, 3), but got {pose.shape}'
+        assert len(pose.shape) == 2, f'pose should be 2D, but got {pose.shape}'
+        assert pose.shape[1] == 3, f'pose last dimension should be 3, but got {pose.shape}'
         self.pose = pose
 
     def set_location(self, location: np.ndarray) -> None:
@@ -106,7 +107,7 @@ class Player:
         Args:
             team_id (Optional[int]): Team ID the player belongs to.
             bbox (Optional[np.ndarray]): 2D bounding box [x1, y1, x2, y2, score].
-            pose (Optional[np.ndarray]): 17 keypoints in 2D image coordinates [[x, y, score], ...].
+            pose (Optional[np.ndarray]): N keypoints in 2D image coordinates [[x, y, score], ...].
             location (Optional[np.ndarray]): 3D world coordinates [x, y, z].
             ball_holding (bool): Whether the player is holding the ball.
         """
@@ -133,7 +134,7 @@ class Player:
 
         Args:
             bbox (np.ndarray): 2D bounding box [x1, y1, x2, y2, score].
-            pose (np.ndarray): 17 keypoints in 2D image coordinates [[x, y, score], ...].
+            pose (np.ndarray): N keypoints in 2D image coordinates [[x, y, score], ...].
             location (np.ndarray): 3D world coordinates [x, y, z].
             ball_holding (bool): Whether the player is holding the ball.
         """

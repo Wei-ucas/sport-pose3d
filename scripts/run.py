@@ -35,6 +35,15 @@ def main(
     skip_reid: bool = False,
     skip_analysis: bool = False,
     court: str = None,
+    pose_model: str = "rtmpose",
+    pose_checkpoint: str = None,
+    pose_config: str = None,
+    device: str = "cuda:0",
+    view_processes: int = 1,
+    inherit_detection_from: str = None,
+    kalman_process_noise: float = 1e-3,
+    kalman_measurement_noise: float = 5e-2,
+    one_player: bool = False,
 ):
     logger = logging.getLogger("main")
 
@@ -49,6 +58,7 @@ def main(
         video_type=video_type,
         frame_step=frame_step,
         max_frame_num=max_frame_num,
+        pose_model_name=pose_model,
     )
 
     logger.info(f"Game data path: {data_cfg}")
@@ -63,7 +73,14 @@ def main(
         data_path_cfg=data_cfg,
         task_processor=detection_processor,
         task_type="detection",
+        num_workers=view_processes,
+        court_spec=court,
         vis=vis_video,
+        pose_model=pose_model,
+        pose_checkpoint=pose_checkpoint,
+        pose_config=pose_config,
+        device=device,
+        inherit_detection_from=inherit_detection_from,
     )
 
     # Step 2: reid
@@ -72,6 +89,8 @@ def main(
             data_path_cfg=data_cfg,
             task_processor=reid_processor,
             task_type="reid",
+            num_workers=view_processes,
+            court_spec=court,
             vis=vis_video,
         )
 
@@ -79,7 +98,13 @@ def main(
     triangulation_processor(data_path_cfg=data_cfg, use_reid=not skip_reid)
 
     # Step 4: optimization
-    optimize_processor(data_path_cfg=data_cfg, use_reid=not skip_reid)
+    optimize_processor(
+        data_path_cfg=data_cfg,
+        use_reid=not skip_reid,
+        kalman_process_noise=kalman_process_noise,
+        kalman_measurement_noise=kalman_measurement_noise,
+        one_player=one_player,
+    )
 
     # Step 5: analysis
     if not skip_analysis:
@@ -140,8 +165,68 @@ if __name__ == "__main__":
     parser.add_argument(
         "--court",
         type=str,
-        default=None,
+        default="work-dirs/court.json",
         help="球场配置: 预设名称 (volleyball / badminton) 或 court.json 文件路径。默认为排球场。",
+    )
+    parser.add_argument(
+        "--pose_model",
+        type=str,
+        default="rtmpose",
+        choices=[
+            "rtmpose",
+            "rtmpose-m-halpe26",
+            "mediapipe",
+            "vitposepp-b",
+            "vitposepp-h",
+        ],
+        help="姿态模型名称；人体检测统一使用现有 RTMDet(TRT)。",
+    )
+    parser.add_argument(
+        "--pose_checkpoint",
+        type=str,
+        default=None,
+        help="姿态模型权重路径。RTMPose/ViTPose++ 默认使用普通 torch 权重；未提供时优先使用仓库内默认权重，MediaPipe 忽略该参数。",
+    )
+    parser.add_argument(
+        "--pose_config",
+        type=str,
+        default=None,
+        help="姿态模型配置路径。RTMPose/ViTPose++ 默认使用仓库内置配置，MediaPipe 可选读取配置字典。",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0",
+        help="检测与姿态推理设备。",
+    )
+    parser.add_argument(
+        "--view_processes",
+        type=int,
+        default=1,
+        help="按视角启动的进程数；1 为串行，<=0 时自动按视角数启动。",
+    )
+    parser.add_argument(
+        "--inherit_detection_from",
+        type=str,
+        default=None,
+        help="复用指定姿态模型已有 detection pkl 中的 bbox，跳过当前流程中的 RTMDet 推理。",
+    )
+    parser.add_argument(
+        "--kalman_process_noise",
+        type=float,
+        default=1e-3,
+        help="轨迹优化中卡尔曼滤波的过程噪声强度。越大越跟随当前观测。",
+    )
+    parser.add_argument(
+        "--kalman_measurement_noise",
+        type=float,
+        default=5e-2,
+        help="轨迹优化中卡尔曼滤波的观测噪声强度。越大越平滑。",
+    )
+    parser.add_argument(
+        "--one_player",
+        action="store_true",
+        help="在重排序后只保留第一个 player 进入后续优化、收集和可视化流程。",
     )
 
     args = parser.parse_args()
@@ -160,4 +245,13 @@ if __name__ == "__main__":
         skip_reid=args.skip_reid,
         skip_analysis=args.skip_analysis,
         court=args.court,
+        pose_model=args.pose_model,
+        pose_checkpoint=args.pose_checkpoint,
+        pose_config=args.pose_config,
+        device=args.device,
+        view_processes=args.view_processes,
+        inherit_detection_from=args.inherit_detection_from,
+        kalman_process_noise=args.kalman_process_noise,
+        kalman_measurement_noise=args.kalman_measurement_noise,
+        one_player=args.one_player,
     )

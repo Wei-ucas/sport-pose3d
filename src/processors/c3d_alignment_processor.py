@@ -259,7 +259,7 @@ def c3d_alignment_processor(
 ):
     logger = logging.getLogger("c3d_alignment_processor")
 
-    k3d_path = os.path.join(data_path_cfg.output_dir, "k3d.pkl")
+    k3d_path = data_path_cfg.find_output_artifact_path("k3d", ".pkl")
     if not os.path.exists(k3d_path):
         raise FileNotFoundError(f"k3d file not found: {k3d_path}")
 
@@ -343,8 +343,8 @@ def c3d_alignment_processor(
         "frame_pairs": frame_pairs,
     }
 
-    report_path = os.path.join(data_path_cfg.output_dir, "c3d_alignment_report.json")
-    result_path = os.path.join(data_path_cfg.output_dir, "c3d_alignment.pkl")
+    report_path = data_path_cfg.get_output_artifact_path("c3d_alignment_report", ".json")
+    result_path = data_path_cfg.get_output_artifact_path("c3d_alignment", ".pkl")
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     with open(result_path, "wb") as f:

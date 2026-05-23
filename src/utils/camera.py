@@ -170,8 +170,8 @@ def image2ground(
 
     points = cv2.convertPointsToHomogeneous(points)
     points = points[:, 0, :, None]
-    if "inv_p" in camera_params:
-        points = camera_params["inv_p"] @ points
+    if "inv_P" in camera_params:
+        points = camera_params["inv_P"] @ points
     else:
         # K = camera_params['K'][view_id]
         # dist = camera_params['dist'][view_id]
@@ -210,7 +210,11 @@ def camera_project(points: np.ndarray, camera: dict) -> np.ndarray:
 
 def get_basketball_outer_range(camera_params: Dict) -> List:
     all_court_corners = np.concatenate(
-        [constant.court_top_corners, constant.court_ground_corners], axis=0
+        [
+            constant.default_court.court_top_corners,
+            constant.default_court.court_ground_corners,
+        ],
+        axis=0,
     )
     # court_image_range = {}
     # for key, param in camera_params:

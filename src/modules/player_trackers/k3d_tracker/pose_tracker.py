@@ -78,18 +78,26 @@ def linear_assignment(cost_matrix):
 #     return np.array([x[0]-w/2.,x[1]-h/2.,x[0]+w/2.,x[1]+h/2.]).reshape((1,4))
 #   else:
 #     return np.array([x[0]-w/2.,x[1]-h/2.,x[0]+w/2.,x[1]+h/2.,score]).reshape((1,5))
-def convert_k3d_to_x(k3d, keypoints_converstion='coco'):
-    """
-    Takes a 3D keypoints in the form [x1,y1,z1,x2,y2,z2,...] and returns it in the form
-      [x,y,z] where x,y,z is the mid hip position
-    """
-    if keypoints_converstion == 'coco':
-        mid_hip = (k3d[11] + k3d[12]) / 2
-        nose = k3d[0]
-        nose_mid_hip = nose - mid_hip
-    else:
-        raise NotImplementedError
-    return np.concatenate([mid_hip, nose_mid_hip], axis=-1).reshape((6,1))
+# def convert_k3d_to_x(k3d, keypoints_converstion='coco'):
+#     """
+#     Takes a 3D keypoints in the form [x1,y1,z1,x2,y2,z2,...] and returns it in the form
+#       [x,y,z] where x,y,z is the mid hip position
+#     """
+#     if keypoints_converstion == 'coco':
+#         mid_hip = (k3d[11] + k3d[12]) / 2
+#         nose = k3d[0]
+#         nose_mid_hip = nose - mid_hip
+#     elif keypoints_converstion == 'body25':
+#         # neck = k3d[1]
+#         # nose = k3d[0]
+#         # neck = k3d[1]
+#         # mid_hip = k3d[8]
+#         # nose_mid_hip = nose - neck
+#         # mid_hip = neck
+#         # nose_mid_hip = neck - mid_hip
+#     else:
+#         raise NotImplementedError
+#     return np.concatenate([mid_hip, nose_mid_hip], axis=-1).reshape((6,1))
 
 
 def convert_k3ds_to_x(k3ds, keypoints_converstion='coco'):
@@ -102,9 +110,22 @@ def convert_k3ds_to_x(k3ds, keypoints_converstion='coco'):
         scores = (neck[:, 3] + nose[:, 3])/2
         neck = neck[:, :3]
         nose_mid_hip = nose_mid_hip[:, :3]
+    elif keypoints_converstion == 'body25':
+        # neck = k3ds[:, 1]
+        # nose = k3ds[:, 0]
+        # nose_mid_hip = nose[:, :3] - neck[:, :3]
+        # scores = (neck[:, 3] + nose[:, 3]) / 2
+        # neck = neck[:, :3]
+        neck = k3ds[:, 1]
+        mid_hip = k3ds[:, 8]
+        nose_mid_hip = neck - mid_hip
+        scores = (neck[:, 3] + mid_hip[:, 3]) / 2
+        neck = neck[:, :3]
+        mid_hip = mid_hip[:, :3]
+        nose_mid_hip = nose_mid_hip[:, :3]
     else:
         raise NotImplementedError
-    return np.concatenate([neck, nose_mid_hip], axis=-1).reshape(-1, 6), scores
+    return np.concatenate([neck, nose_mid_hip*0], axis=-1).reshape(-1, 6), scores
 
 
 def dist_batch(x_test, x_gt, x_reid=None, x_gt_reid=None, position_weight=1, orientation_weight=1, limb_weight=1, reid_temp=300):
@@ -114,7 +135,8 @@ def dist_batch(x_test, x_gt, x_reid=None, x_gt_reid=None, position_weight=1, ori
     x_gt = x_gt.reshape(1,-1, 2, 3)
     position_dist = np.linalg.norm(x_test[:,:,0] - x_gt[:,:,0], axis=-1)
     # orientation_dist = 1 - cos_sim
-    orientation_dist = 1 - np.sum(x_test[:,:,1] * x_gt[:,:,1], axis=-1)/np.linalg.norm(x_test[:,:,1], axis=-1)/np.linalg.norm(x_gt[:,:,1], axis=-1)
+    # orientation_dist = 1 - np.sum(x_test[:,:,1] * x_gt[:,:,1], axis=-1)/np.linalg.norm(x_test[:,:,1], axis=-1)/np.linalg.norm(x_gt[:,:,1], axis=-1)
+    orientation_dist = 0 
     # limb_dist = np.linalg.norm(x_test[:,:,1] - x_gt[:,:,1], axis=-1)
     limb_dist = np.abs(np.linalg.norm(x_test[:,:,1], axis=-1) -  np.linalg.norm(x_gt[:,:,1], axis=-1))
     reid_dist = limb_dist * 0
@@ -174,6 +196,7 @@ class KalmanK3DTracker(object):
         Initialises a tracker using initial keypoints.
         x = [x,y,z of the mid hip, x,y,z of the nose - x,y,z of the mid hip]
         """
+        self.keypoints_convention = keypoints_convention
         # define constant velocity model
         self.kf = KalmanFilter(dim_x=9, dim_z=6)
         self.kf.F = np.array(
@@ -226,7 +249,7 @@ class KalmanK3DTracker(object):
         self.hits += 1
         self.hit_streak += 1
         if k3d.shape[0] > 6:
-            k3d = convert_k3d_to_x(k3d)
+            k3d = convert_k3d_to_x(k3d, self.keypoints_convention)
         self.kf.update(k3d)
 
     def predict(self):
@@ -297,7 +320,7 @@ def associate_detections_to_trackers(detections, trackers, detection_reid=None, 
 
 
 class K3dSort(object):
-    def __init__(self, det_thresh=-1, max_age=30, min_hits=3, dist_threshold=0.3):
+    def __init__(self, det_thresh=-1, max_age=30, min_hits=3, dist_threshold=0.3, keypoints_convention='coco'):
         """
         Sets key parameters for SORT
         """
@@ -307,6 +330,7 @@ class K3dSort(object):
         self.trackers = []
         self.frame_count = 0
         self.det_thresh = det_thresh
+        self.keypoints_convention = keypoints_convention
 
     def reset(self):
         self.trackers = []
@@ -326,7 +350,7 @@ class K3dSort(object):
         # img_h, img_w = img_info[0], img_info[1]
         # scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
         # bboxes /= scale
-        dets, scores = convert_k3ds_to_x(output_results)
+        dets, scores = convert_k3ds_to_x(output_results, self.keypoints_convention)
         # dets = np.concatenate((bboxes, np.expand_dims(scores, axis=-1)), axis=1)
         remain_inds = scores > self.det_thresh
         dets = dets[remain_inds]
@@ -369,7 +393,7 @@ class K3dSort(object):
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
             # trk = KalmanBoxTracker(dets[i, :])
-            trk = KalmanK3DTracker(dets[i, :])
+            trk = KalmanK3DTracker(dets[i, :], keypoints_convention=self.keypoints_convention)
             self.trackers.append(trk)
             trk.current_det_index = i
 

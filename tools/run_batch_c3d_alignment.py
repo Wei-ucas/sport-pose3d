@@ -51,14 +51,14 @@ def discover_tasks(work_dirs_root: str) -> list[dict]:
     return tasks
 
 
-def is_done(task: dict) -> bool:
-    output_dir = os.path.join(task["workdir"], "output", task["game_id"])
-    return os.path.isfile(os.path.join(output_dir, "c3d_alignment_report.json")) and os.path.isfile(
-        os.path.join(output_dir, "c3d_k3d_vis.html")
+def is_done(task: dict, video_type: str, frame_step: int, max_frame_num: int, pose_model: str) -> bool:
+    data_cfg = _make_data_cfg(task, video_type, frame_step, max_frame_num, pose_model)
+    return os.path.isfile(data_cfg.find_output_artifact_path("c3d_alignment_report", ".json")) and os.path.isfile(
+        data_cfg.find_output_artifact_path("c3d_k3d_vis", ".html")
     )
 
 
-def _make_data_cfg(task: dict, video_type: str, frame_step: int, max_frame_num: int):
+def _make_data_cfg(task: dict, video_type: str, frame_step: int, max_frame_num: int, pose_model: str):
     from src.data_io.path_config import GamePath
 
     return GamePath(
@@ -68,10 +68,11 @@ def _make_data_cfg(task: dict, video_type: str, frame_step: int, max_frame_num: 
         video_type=video_type,
         frame_step=frame_step,
         max_frame_num=max_frame_num,
+        pose_model_name=pose_model,
     )
 
 
-def run_task(task: dict, video_type: str, frame_step: int, max_frame_num: int, confidence_threshold: float) -> dict:
+def run_task(task: dict, video_type: str, frame_step: int, max_frame_num: int, confidence_threshold: float, pose_model: str) -> dict:
     from src.processors.c3d_alignment_processor import c3d_alignment_processor
     from src.processors.visualize_c3d_k3d_processor import visualize_c3d_k3d_processor
 
@@ -79,9 +80,9 @@ def run_task(task: dict, video_type: str, frame_step: int, max_frame_num: int, c
     log_dir = os.path.join(LOG_ROOT, task["subject"])
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"{task['game_id']}.log")
-    output_dir = os.path.join(task["workdir"], "output", task["game_id"])
-    report_path = os.path.join(output_dir, "c3d_alignment_report.json")
-    html_path = os.path.join(output_dir, "c3d_k3d_vis.html")
+    data_cfg = _make_data_cfg(task, video_type, frame_step, max_frame_num, pose_model)
+    report_path = data_cfg.get_output_artifact_path("c3d_alignment_report", ".json")
+    html_path = data_cfg.get_output_artifact_path("c3d_k3d_vis", ".html")
 
     t0 = time.time()
     result_payload = {
@@ -112,7 +113,6 @@ def run_task(task: dict, video_type: str, frame_step: int, max_frame_num: int, c
             lf.write(f"# video_type={video_type} frame_step={frame_step} max_frame_num={max_frame_num}\n")
             lf.write(f"# confidence_threshold={confidence_threshold}\n\n")
 
-            data_cfg = _make_data_cfg(task, video_type, frame_step, max_frame_num)
             lf.write("[INFO] Running c3d alignment...\n")
             report = c3d_alignment_processor(
                 data_path_cfg=data_cfg,
@@ -217,6 +217,7 @@ def main():
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
     parser.add_argument("--jobs", type=int, default=1, metavar="N")
+    parser.add_argument("--pose_model", type=str, default="rtmpose")
     args = parser.parse_args()
 
     all_tasks = discover_tasks(args.workdirs_root)
@@ -235,7 +236,10 @@ def main():
         print(f"过滤 segment 后剩余: {len(all_tasks)}")
 
     if not args.force:
-        pending = [task for task in all_tasks if not is_done(task)]
+        pending = [
+            task for task in all_tasks
+            if not is_done(task, args.video_type, args.frame_step, args.max_frame_num, args.pose_model)
+        ]
         skipped = len(all_tasks) - len(pending)
         if skipped:
             print(f"已完成（跳过）: {skipped}  待处理: {len(pending)}")
@@ -273,6 +277,7 @@ def main():
                 frame_step=args.frame_step,
                 max_frame_num=args.max_frame_num,
                 confidence_threshold=args.confidence_threshold,
+                pose_model=args.pose_model,
             )
             results.append(res)
             if res["success"]:
@@ -293,6 +298,7 @@ def main():
                     args.frame_step,
                     args.max_frame_num,
                     args.confidence_threshold,
+                    args.pose_model,
                 )
                 futures[future] = task
             done_count = 0

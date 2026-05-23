@@ -2,17 +2,21 @@ from typing import List, Tuple
 
 from ..base_module import BaseModule
 from src.structures.multiview_frame import MvFrame
-from src.utils.keypoints import coco17tolocation
+from src.utils.keypoints import keypoints3dtolocation
 import numpy as np
+
+# 躯干关键点索引
+TORSO_JOINTS = [ 2, 5, 9, 12]
 
 
 def build_k3d_tracker(track_distance):
     from ..player_trackers.k3d_tracker.pose_tracker import K3dSort
 
     tracker = K3dSort(
-        max_age=20,
+        max_age=50,
         dist_threshold=track_distance,  # 影响匹配的结果， 关键
         min_hits=3,
+        keypoints_convention="body25",
     )
     return tracker
 
@@ -76,10 +80,10 @@ class Player3DMatcher(BaseModule):
     def filter_k3d(self, k3d_dets):
         # remove duplicate detections
         k3d_dist_mat = np.linalg.norm(
-            k3d_dets[:, None, 3:7, :3] - k3d_dets[None, :, 3:7, :3], axis=-1
+            k3d_dets[:, None, TORSO_JOINTS, :3] - k3d_dets[None, :, TORSO_JOINTS, :3], axis=-1
         )
         k3d_dist_mat += np.eye(len(k3d_dets))[:, :, None] * 1000
-        duplicate = np.where((k3d_dist_mat < 0.2).sum(-1) > 2)
+        duplicate = np.where((k3d_dist_mat < 0.2).sum(-1) > 1)
         # for duplicate dets, keep the one with higher score
         for i, j in zip(duplicate[0], duplicate[1]):
             if k3d_dets[i, :, 3].mean() > k3d_dets[j, :, 3].mean():
@@ -105,7 +109,7 @@ class Player3DMatcher(BaseModule):
         match_ids, det_index = self.tracker.update(k3d_dets, reid)
         for i, det_idx in enumerate(det_index):
             mv_frame.tracked_player_k3d[match_ids[i]] = k3d_dets[det_idx]
-            mv_frame.tracked_player_location[match_ids[i]] = coco17tolocation(
+            mv_frame.tracked_player_location[match_ids[i]] = keypoints3dtolocation(
                 k3d_dets[det_idx]
             )
             mv_frame.tracked_player_reid_info[match_ids[i]] = reid[det_idx]

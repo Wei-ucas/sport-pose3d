@@ -1,7 +1,7 @@
 import numpy as np
 
 from src.utils.camera import image2ground
-from src.utils.constant import default_court
+from src.utils import constant as _constant
 from typing import Dict, List
 
 
@@ -13,7 +13,7 @@ class BboxFilter:
     def __init__(self, camera_params=None, court_config=None):
         if camera_params is not None:
             self.set_camera_params(camera_params)
-        court = court_config or default_court
+        court = court_config or _constant.default_court
         self.court_range_x = court.court_range_x
         self.court_range_y = court.court_range_y
 

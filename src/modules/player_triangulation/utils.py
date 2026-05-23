@@ -2,7 +2,7 @@ from typing import Dict, List, Union
 import numpy as np
 
 
-from src.utils.keypoints import coco17tobody25, body25tococo17
+from src.utils.keypoints import coco17tobody25, halpe26tobody25
 
 def player_to_easymocap_format(players: Dict[str, List]) \
         -> Dict[str, List[Dict[str, np.ndarray]]]:
@@ -22,6 +22,8 @@ def player_to_easymocap_format(players: Dict[str, List]) \
             k2d = player.pose
             if k2d is not None and k2d.shape[0] == 17:
                 k2d = coco17tobody25(k2d)
+            if k2d is not None and k2d.shape[0] == 26:
+                k2d = halpe26tobody25(k2d)
             assert k2d.shape[0] == 25, f"keypoints should be 25, but got {k2d.shape[0]} for player {player.tracking_id} in camera {camera_id}"
             # k2d[:, 2] *= score_mask  # set the score to 0 for other keypoints
             annots[camera_id].append(
@@ -45,7 +47,7 @@ def camera_to_easymocap_format(cameras: Dict[Union[str, int], np.ndarray], camer
     return camera_params
 
 
-def easymocap_result_to_player(result:dict):
-    keypoint3d = body25tococo17(result['keypoints3d'])
+def easymocap_result_to_player(result: dict):
+    keypoint3d = np.asarray(result['keypoints3d'], dtype=np.float32)
     player_index_in_view = result['indices']
     return keypoint3d, player_index_in_view

@@ -8,6 +8,16 @@ import cv2
 from src.data_io.path_config import GamePath
 
 
+def _count_sampled_frames(start_frame: int, end_frame: int, frame_step: int) -> int:
+    if end_frame <= start_frame:
+        return 0
+    first_sample = 0 if start_frame <= 0 else ((start_frame + frame_step - 1) // frame_step) * frame_step
+    if first_sample >= end_frame:
+        return 0
+    last_sample = ((end_frame - 1) // frame_step) * frame_step
+    return ((last_sample - first_sample) // frame_step) + 1
+
+
 def _get_video_frame_count(video_path: str) -> int:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -53,7 +63,7 @@ def validate_k3d_length_processor(data_path_cfg: GamePath):
     """
     logger = logging.getLogger("validate_k3d_length_processor")
 
-    k3d_path = os.path.join(data_path_cfg.output_dir, "k3d.pkl")
+    k3d_path = data_path_cfg.find_output_artifact_path("k3d", ".pkl")
     if not os.path.exists(k3d_path):
         raise FileNotFoundError(f"k3d file not found: {k3d_path}")
 
@@ -69,18 +79,17 @@ def validate_k3d_length_processor(data_path_cfg: GamePath):
         total_frames = _get_video_frame_count(video_path)
         offset = offsets.get(view_id, 0)
         synced_length = max(0, total_frames - offset)
-
-        processed_length = synced_length
-        if data_path_cfg.frame_step > 1:
-            processed_length = synced_length // data_path_cfg.frame_step
+        raw_frame_limit = total_frames
         if data_path_cfg.max_frame_num != -1:
-            processed_length = min(processed_length, data_path_cfg.max_frame_num)
+            raw_frame_limit = min(raw_frame_limit, data_path_cfg.max_frame_num)
+        processed_length = _count_sampled_frames(offset, raw_frame_limit, data_path_cfg.frame_step)
 
         per_view_stats[view_id] = {
             "video_path": video_path,
             "total_frames": total_frames,
             "sync_offset": offset,
             "synced_length": synced_length,
+            "raw_frame_limit": raw_frame_limit,
             "processed_length": processed_length,
         }
         synced_lengths.append(synced_length)
@@ -101,7 +110,7 @@ def validate_k3d_length_processor(data_path_cfg: GamePath):
         "views": per_view_stats,
     }
 
-    report_path = os.path.join(data_path_cfg.output_dir, "k3d_length_check.json")
+    report_path = data_path_cfg.get_output_artifact_path("k3d_length_check", ".json")
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 

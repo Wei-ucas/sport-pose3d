@@ -56,10 +56,33 @@ video_sync.json 由 sport-cap 的 video_sync_processor 生成，路径结构为�
         --workdirs_root work-dirs \\
         --export_root exported-results
 
+    # 仅导出指定视角的 k3d 结果
+    python tools/sync_project_data.py \
+        --project_json work-dirs/all_data.json \
+        --workdirs_root work-dirs \
+        --export_root exported-results \
+        --export_view v00020406
+
+    # 同时导出多个指定视角的 k3d 结果
+    python tools/sync_project_data.py \
+        --project_json work-dirs/all_data.json \
+        --workdirs_root work-dirs \
+        --export_root exported-results \
+        --export_view v000102 v00020406
+
+    # 或重复传入 export_view
+    python tools/sync_project_data.py \
+        --project_json work-dirs/all_data.json \
+        --workdirs_root work-dirs \
+        --export_root exported-results \
+        --export_view v000102 \
+        --export_view v00020406
+
 脚本还会额外处理：
     1. 将每个 Trial 对应的 c3d 文件名写回 segment 记录中的 "c3d_file_name"
     2. 将 c3d_alignment_report.json 的内容（去除路径字段）写回 segment 记录中的 "c3d_alignment"
     3. 在导出目录中额外导出 c3d 文件
+    4. 导出每个 segment 下可用的 k3d 结果清单 JSON
 """
 from __future__ import annotations
 import argparse
@@ -212,6 +235,90 @@ def sanitize_alignment_report(report: dict) -> dict:
     }
 
 
+def find_segment_k3d_result_files(
+    segment_output_dir: str, export_views=None
+) -> list[str]:
+    """仅收集符合 k3d_<model>_<view>.pkl 格式的结果文件。"""
+    if not os.path.isdir(segment_output_dir):
+        return []
+
+    selected_views = set(export_views or [])
+
+    matched_files = []
+    for name in sorted(os.listdir(segment_output_dir)):
+        if not os.path.isfile(os.path.join(segment_output_dir, name)):
+            continue
+        if not name.startswith("k3d_") or not name.endswith(".pkl") or name.count("_") < 2:
+            continue
+        parsed = parse_k3d_result_file_name(name)
+        if parsed["view_selection"] is None:
+            continue
+        if selected_views and parsed["view_selection"] not in selected_views:
+            continue
+        matched_files.append(name)
+    return matched_files
+
+
+def build_export_k3d_name(segment_key: str, source_name: str) -> str:
+    """导出目录中的 k3d 文件名。"""
+    return f"{segment_key}_{source_name}"
+
+
+def parse_k3d_result_file_name(file_name: str) -> dict:
+    """解析 k3d 结果文件名中的模型和视角信息。"""
+    if file_name == "k3d.pkl":
+        return {
+            "source_file": file_name,
+            "model_name": None,
+            "view_selection": None,
+            "is_legacy": True,
+        }
+
+    stem = file_name[:-4]
+    suffix = stem[len("k3d_"):]
+    model_name = suffix
+    view_selection = None
+    if "_" in suffix:
+        model_candidate, view_candidate = suffix.rsplit("_", 1)
+        if view_candidate.startswith("v"):
+            model_name = model_candidate
+            view_selection = view_candidate
+
+    return {
+        "source_file": file_name,
+        "model_name": model_name,
+        "view_selection": view_selection,
+        "is_legacy": False,
+    }
+
+
+def build_segment_k3d_manifest(
+    workdir_name: str,
+    game_id: str,
+    segment_key: str,
+    exported_k3d_files,
+) -> dict:
+    """构建单个 segment 的 k3d 导出清单。"""
+    results = []
+    for source_name, export_name in exported_k3d_files:
+        item = parse_k3d_result_file_name(source_name)
+        item["export_file"] = export_name
+        results.append(item)
+
+    return {
+        "workdir_name": workdir_name,
+        "game_id": game_id,
+        "segment_key": segment_key,
+        "available_models": sorted(
+            {item["model_name"] for item in results if item["model_name"]}
+        ),
+        "available_view_selections": sorted(
+            {item["view_selection"] for item in results if item["view_selection"]}
+        ),
+        "k3d_results": results,
+    }
+
+
 def update_segment_artifacts(
     project: dict,
     workdirs_root: str,
@@ -359,23 +466,25 @@ def export_segment_outputs(
     workdirs_root: str,
     output_root: str,
     jobs,
+    export_views=None,
     dry_run: bool = False,
 ) -> int:
     """
     反向导出结果文件。
 
     源文件：
-        <workdirs_root>/<workdir_name>/output/<game_id>/k3d.pkl
-        <workdirs_root>/<workdir_name>/output/<game_id>/k3d_vis.html
+        <workdirs_root>/<workdir_name>/output/<game_id>/k3d_<model>_<view>.pkl
         <workdirs_root>/<workdir_name>/c3d/<SEGMENT_KEY>/*.c3d
 
     目标文件：
-        <output_root>/<workdir_name>/<SEGMENT_KEY>_k3d.pkl
-        <output_root>/<workdir_name>/<SEGMENT_KEY>_k3d_vis.html
+        <output_root>/<workdir_name>/<SEGMENT_KEY>_k3d_<model>_<view>.pkl
+        <output_root>/<workdir_name>/<SEGMENT_KEY>_k3d_results.json
         <output_root>/<workdir_name>/<SEGMENT_KEY>_<c3d_basename>.c3d
     """
     exported = 0
     seen = set()
+    selected_views = set(export_views or [])
+    selected_views_text = ", ".join(sorted(selected_views))
 
     for _, workdir_name, game_id in jobs:
         job_key = (workdir_name, game_id)
@@ -394,10 +503,22 @@ def export_segment_outputs(
         segment_key = segment["segment_key"]
         src_dir = os.path.join(workdirs_root, workdir_name, "output", game_id)
         dst_dir = os.path.join(output_root, workdir_name)
-        file_pairs = [
-            ("k3d.pkl", f"{segment_key}_k3d.pkl"),
-            ("k3d_vis.html", f"{segment_key}_k3d_vis.html"),
-        ]
+        file_pairs = []
+
+        k3d_files = find_segment_k3d_result_files(src_dir, export_views=selected_views)
+        exported_k3d_files = []
+        if not k3d_files:
+            if not selected_views:
+                print(f"[警告] 未找到 k3d 结果文件: {src_dir}")
+            else:
+                print(
+                    f"[警告] 未找到视角属于 {{{selected_views_text}}} 的 k3d 结果文件: {src_dir}"
+                )
+        else:
+            for src_name in k3d_files:
+                dst_name = build_export_k3d_name(segment_key, src_name)
+                file_pairs.append((src_name, dst_name))
+                exported_k3d_files.append((src_name, dst_name))
 
         for src_name, dst_name in file_pairs:
             src_path = os.path.join(src_dir, src_name)
@@ -412,6 +533,24 @@ def export_segment_outputs(
                 os.makedirs(dst_dir, exist_ok=True)
                 shutil.copy2(src_path, dst_path)
                 print(f"[导出] {src_path} -> {dst_path}")
+            exported += 1
+
+        if exported_k3d_files:
+            manifest_name = f"{segment_key}_k3d_results.json"
+            manifest_path = os.path.join(dst_dir, manifest_name)
+            manifest = build_segment_k3d_manifest(
+                workdir_name,
+                game_id,
+                segment_key,
+                exported_k3d_files,
+            )
+            if dry_run:
+                print(f"[模拟导出] k3d 结果清单 -> {manifest_path}")
+            else:
+                os.makedirs(dst_dir, exist_ok=True)
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(manifest, f, ensure_ascii=False, indent=2)
+                print(f"[导出] k3d 结果清单 -> {manifest_path}")
             exported += 1
 
         c3d_path = find_segment_c3d_file(workdirs_root, workdir_name, segment_key)
@@ -491,7 +630,18 @@ def main():
         "--export_root",
         type=str,
         default=None,
-        help="可选。将输出文件导出到该目录，命名为 <workdir>/<SEGMENT_KEY>_k3d.pkl 等",
+        help="可选。将输出文件导出到该目录，命名为 <workdir>/<SEGMENT_KEY>_k3d_<model>_<view>.pkl 等",
+    )
+    parser.add_argument(
+        "--export_view",
+        type=str,
+        nargs="+",
+        action="append",
+        default=None,
+        help=(
+            "可选。仅导出指定视角字符串对应的 k3d 结果，"
+            "例如 --export_view v000102 v00020406；也可重复传入该参数。"
+        ),
     )
     args = parser.parse_args()
 
@@ -503,6 +653,17 @@ def main():
     if os.path.abspath(output_json) == os.path.abspath(args.project_json):
         print("[错误] output_json 不能与 project_json 相同，请指定新的输出文件路径")
         sys.exit(1)
+
+    export_views = None
+    if args.export_view is not None:
+        export_views = []
+        for values in args.export_view:
+            export_views.extend(values)
+        for export_view in export_views:
+            if not export_view.startswith("v") or not export_view[1:].isdigit():
+                print(f"[错误] export_view 格式非法: {export_view}，应形如 v00020406")
+                sys.exit(1)
+        export_views = sorted(set(export_views))
 
     project = load_project(args.project_json)
     total_updated = 0
@@ -646,6 +807,7 @@ def main():
             workdirs_source_root,
             os.path.abspath(args.export_root),
             jobs,
+            export_views=export_views,
             dry_run=args.dry_run,
         )
         action = "计划导出" if args.dry_run else "已导出"

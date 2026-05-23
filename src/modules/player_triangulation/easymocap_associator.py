@@ -1,3 +1,4 @@
+import copy
 from typing import List, Tuple, Dict, Any, Union
 import os
 import sys
@@ -58,7 +59,7 @@ class PlayerTriangulator(BaseModule):
             "log": False,
             "body": "body25",
             "max_repro_error": 0.1,
-            "min_views": 4,
+            "min_views": 2,
             "criterions": edict(
                 {
                     "easymocap.assignment.criterion.BaseCrit": edict(
@@ -73,7 +74,7 @@ class PlayerTriangulator(BaseModule):
                             "min_conf": 0.1,
                         }
                     ),
-                    # 'easymocap.assignment.criterion.CritMinMax': edict({'max_human_length': 2.5, 'min_conf': 0.001}),
+                    'easymocap.assignment.criterion.CritMinMax': edict({'max_human_length': 2.5, 'min_conf': 0.001}),
                     "easymocap.assignment.criterion.CritWithTorso": edict(
                         {"torso_idx": [1, 17, 18], "min_conf": 0.3}
                     ),
@@ -89,12 +90,14 @@ class PlayerTriangulator(BaseModule):
         self,
         cameras_params,
         camera_ids,
-        pose_conversion="coco17",
+        pose_conversion="body25",
         dist_max=25,
         num_players=10,
     ):
         super().__init__("PlayerTriangulator")
         self.camera_ids = camera_ids
+        self.associate_cfg = copy.deepcopy(PlayerTriangulator.associate_cfg)
+        self.associate_cfg.min_views = self._resolve_min_views(camera_ids)
         if cameras_params is not None:
             self.cameras_params = cameras_params
             self.cameras = camera_to_easymocap_format(cameras_params, camera_ids)
@@ -105,10 +108,20 @@ class PlayerTriangulator(BaseModule):
             self.cameras = None
         self.dist_max = dist_max
         assert (
-            pose_conversion == "coco17"
-        ), "Only coco17 pose conversion is supported in EasyMocapAssociate"
+            pose_conversion == "body25"
+        ), "Only body25 pose conversion is supported in EasyMocapAssociate"
         self.pose_conversion = pose_conversion
         self.num_target_player = num_players
+        self.logger.info(
+            "Association min_views set to %d for %d cameras.",
+            self.associate_cfg.min_views,
+            len(self.camera_ids),
+        )
+
+    @staticmethod
+    def _resolve_min_views(camera_ids) -> int:
+        camera_count = len(camera_ids) if camera_ids is not None else 0
+        return max(2, camera_count // 2 + 1) if camera_count > 4 else 2
 
     def process(self, mv_frame: MvFrame) -> MvFrame:
         camera_params = mv_frame.camera_params

@@ -38,21 +38,33 @@ output/
 
 
 class GamePath:
-    def __init__(self, workdir: str, game_id: str, view_list: List[str],
-                 video_type: str = ".mp4", frame_step: int = 1,
-                 max_frame_num: int = -1):
+    def __init__(
+        self,
+        workdir: str,
+        game_id: str,
+        view_list: List[str],
+        video_type: str = ".mp4",
+        frame_step: int = 1,
+        max_frame_num: int = -1,
+        pose_model_name: str = None,
+    ):
         self.workdir = workdir
         self.game_id = game_id
         self.view_list = view_list
         self.video_type = video_type
         self.frame_step = frame_step
         self.max_frame_num = max_frame_num
+        self.pose_model_name = self._normalize_artifact_tag(pose_model_name)
 
         self.video_dir = os.path.join(workdir, "videos", game_id)
-        assert os.path.exists(self.video_dir), f"Video directory {self.video_dir} does not exist."
+        assert os.path.exists(
+            self.video_dir
+        ), f"Video directory {self.video_dir} does not exist."
 
         self.prepare_dir = os.path.join(workdir, "prepare")
-        assert os.path.exists(self.prepare_dir), f"Prepare directory {self.prepare_dir} does not exist."
+        assert os.path.exists(
+            self.prepare_dir
+        ), f"Prepare directory {self.prepare_dir} does not exist."
 
         self.prediction_dir = os.path.join(workdir, "prediction", game_id)
         os.makedirs(self.prediction_dir, exist_ok=True)
@@ -66,12 +78,32 @@ class GamePath:
         self.fps = self._get_fps()
 
     def __repr__(self):
-        return f"GamePath(workdir={self.workdir}, game_id={self.game_id}, views={self.view_list}, " \
-               f"video_type={self.video_type}, frame_step={self.frame_step}, max_frame_num={self.max_frame_num})"
+        return (
+            f"GamePath(workdir={self.workdir}, game_id={self.game_id}, views={self.view_list}, "
+            f"video_type={self.video_type}, frame_step={self.frame_step}, max_frame_num={self.max_frame_num}, "
+            f"pose_model_name={self.pose_model_name})"
+        )
+
+    @staticmethod
+    def _normalize_artifact_tag(name: str) -> str:
+        if not name:
+            return None
+        normalized = "".join(ch.lower() if ch.isalnum() else "-" for ch in name)
+        while "--" in normalized:
+            normalized = normalized.replace("--", "-")
+        normalized = normalized.strip("-")
+        return normalized or None
+
+    def _append_pose_tag(self, stem: str, include_pose_tag: bool = True) -> str:
+        if include_pose_tag and self.pose_model_name:
+            return f"{stem}_{self.pose_model_name}"
+        return stem
 
     def _get_fps(self) -> float:
         """Get the frames per second (fps) of the video."""
-        video_path = os.path.join(self.video_dir, f"{self.view_list[0]}{self.video_type}")
+        video_path = os.path.join(
+            self.video_dir, f"{self.view_list[0]}{self.video_type}"
+        )
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video file {video_path} does not exist.")
         cap = cv2.VideoCapture(video_path)
@@ -94,11 +126,21 @@ class GamePath:
 
     def get_detection_path(self, view_id: str) -> str:
         """Get the detection path for a specific view."""
-        return os.path.join(self.prediction_dir, f"{view_id}_detection_s{self.frame_step}_{self.max_frame_num}.pkl")
+        return self.get_prediction_save_path("detection", view_id)
+
+    def get_detection_path_for_pose_model(
+        self, view_id: str, pose_model_name: str
+    ) -> str:
+        """Get the detection path for a specific view and pose-model artifact tag."""
+        return self.get_prediction_save_path_for_pose_model(
+            prediction_type="detection",
+            pose_model_name=pose_model_name,
+            view_id=view_id,
+        )
 
     def get_reid_path(self, view_id: str) -> str:
         """Get the reid path for a specific view."""
-        return os.path.join(self.prediction_dir, f"{view_id}_reid_s{self.frame_step}_{self.max_frame_num}.pkl")
+        return self.get_prediction_save_path("reid", view_id)
 
     def get_video_sync_path(self) -> str:
         return os.path.join(self.prediction_dir, "video_sync.json")
@@ -140,19 +182,61 @@ class GamePath:
     @property
     def get_report_path(self) -> str:
         """Get the report path for the game."""
-        return os.path.join(self.output_dir, "report.json")
+        return self.get_output_artifact_path("report", ".json")
 
-    def get_prediction_save_path(self, prediction_type: str, view_id: str = None) -> str:
+    def get_output_artifact_path(self, artifact_name: str, ext: str) -> str:
+        return os.path.join(
+            self.output_dir,
+            f"{self._append_pose_tag(artifact_name)}_v{''.join(self.view_list)}{ext}",
+        )
+
+    def find_output_artifact_path(self, artifact_name: str, ext: str) -> str:
+        tagged_path = self.get_output_artifact_path(artifact_name, ext)
+        if os.path.exists(tagged_path):
+            return tagged_path
+        # legacy_path = os.path.join(self.output_dir, f"{artifact_name}{ext}")
+        # if os.path.exists(legacy_path):
+        #     return legacy_path
+        return tagged_path
+
+    def get_prediction_save_path(
+        self, prediction_type: str, view_id: str = None
+    ) -> str:
         """
         Get the save path for a specific prediction type and view ID.
         :param prediction_type: Type of prediction (e.g., 'detection', 'reid', '3d').
         :param view_id: Optional view ID for specific predictions.
         :return: Full path to save the prediction file.
         """
+        return self.get_prediction_save_path_for_pose_model(
+            prediction_type=prediction_type,
+            pose_model_name=self.pose_model_name,
+            view_id=view_id,
+        )
+
+    def get_prediction_save_path_for_pose_model(
+        self,
+        prediction_type: str,
+        pose_model_name: str = None,
+        view_id: str = None,
+    ) -> str:
+        pose_tag = self._normalize_artifact_tag(pose_model_name)
+
         if view_id:
-            return os.path.join(self.prediction_dir,
-                                f"{view_id}_{prediction_type}_s{self.frame_step}_{self.max_frame_num}.pkl")
-        return os.path.join(self.prediction_dir, f"{prediction_type}_{self.max_frame_num}_v{len(self.view_list)}.pkl")
+            stem = (
+                f"{view_id}_{prediction_type}_s{self.frame_step}_{self.max_frame_num}"
+            )
+            if pose_tag:
+                stem = f"{stem}_{pose_tag}"
+            return os.path.join(self.prediction_dir, f"{stem}.pkl")
+
+        stem = f"{prediction_type}_{self.max_frame_num}_v{''.join(self.view_list)}"
+        if pose_tag:
+            stem = f"{stem}_{pose_tag}"
+        return os.path.join(
+            self.prediction_dir,
+            stem + ".pkl",
+        )
 
     def get_vis_path(self, prediction_type: str, view_id: str = None) -> str:
         """
@@ -162,9 +246,17 @@ class GamePath:
         :return: Full path to save the visualization video.
         """
         if view_id:
-            return os.path.join(self.vis_dir,
-                                f"{prediction_type}_{view_id}_s{self.frame_step}_{self.max_frame_num}.mp4")
-        return os.path.join(self.vis_dir, f"{prediction_type}_{self.max_frame_num}_v{len(self.view_list)}.mp4")
+            return os.path.join(
+                self.vis_dir,
+                f"{self._append_pose_tag(f'{prediction_type}_{view_id}_s{self.frame_step}_{self.max_frame_num}')}.mp4",
+            )
+        return os.path.join(
+            self.vis_dir,
+            self._append_pose_tag(
+                f"{prediction_type}_{self.max_frame_num}_v{''.join(self.view_list)}"
+            )
+            + ".mp4",
+        )
 
     def get_player_info(self) -> Dict[int, str]:
         if not os.path.exists(self.get_profile_path):
@@ -172,10 +264,13 @@ class GamePath:
         return read_player_names(self.get_profile_path)
 
 
-def read_player_names(player_profile_path: str, player_name_dict_path: str = None) -> Dict[int, str]:
+def read_player_names(
+    player_profile_path: str, player_name_dict_path: str = None
+) -> Dict[int, str]:
     player_id2number = {}
     player_id2name = {}
     import pickle
+
     with open(player_profile_path, "rb") as f:
         player_profiles = pickle.load(f)
     if player_name_dict_path is not None:
@@ -186,7 +281,7 @@ def read_player_names(player_profile_path: str, player_name_dict_path: str = Non
     for player_team_number in player_profiles.keys():
         player_id = player_profiles[player_team_number]["tmp_player_id"]
         player_team, player_number = player_team_number.split("#")
-        player_ab_number = f'{player_team}#{player_number}'
+        player_ab_number = f"{player_team}#{player_number}"
         player_id2number[player_id] = player_number
 
         if player_name_dict is not None:

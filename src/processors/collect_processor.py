@@ -15,13 +15,13 @@ def collect_processor(
 ):
     """
     Collect per-player k3d joint data from the optimized MvFrame pkl file and
-    save it as ``{player_id: ndarray(T, k, 4)}`` to ``<output_dir>/k3d.pkl``.
+    save it as ``{player_id: ndarray(T, k, 4)}`` to the model-tagged k3d output path.
 
     Args:
         data_path_cfg: GamePath configuration object.
         use_reid: If True, read ``matched_player_k3d``; otherwise ``tracked_player_k3d``.
     """
-    output_path = os.path.join(data_path_cfg.output_dir, "k3d.pkl")
+    output_path = data_path_cfg.get_output_artifact_path("k3d", ".pkl")
     if os.path.exists(output_path):
         logging.getLogger("collect_processor").info(
             f"k3d output {output_path} already exists, skipping."
@@ -36,12 +36,15 @@ def collect_processor(
         return
 
     k3d_field = "matched_player_k3d" if use_reid else "tracked_player_k3d"
+    fallback_k3d_field = "tracked_player_k3d" if use_reid else None
     logger.info(f"Collecting k3d data from {opt_3d_path}, field='{k3d_field}'...")
 
     # First pass: load all frames into memory preserving frame order.
     # frames_data: list of {player_id: ndarray(k, 4)} in frame order.
     frames_data = []
     k_joints = None
+    fallback_frames_data = []
+    fallback_k_joints = None
 
     mv_frame_reader = MvFrameInput(opt_3d_path)
     for mv_frame in tqdm.tqdm(mv_frame_reader, desc="Loading frames"):
@@ -55,9 +58,27 @@ def collect_processor(
                 k_joints = k3d.shape[0]
                 break
 
+        if fallback_k3d_field is not None:
+            fallback_pid_k3d: dict = getattr(mv_frame, fallback_k3d_field, {})
+            fallback_frames_data.append(dict(fallback_pid_k3d))
+            if fallback_k_joints is None:
+                for k3d in fallback_pid_k3d.values():
+                    fallback_k_joints = k3d.shape[0]
+                    break
+
     if not frames_data:
         logger.warning("No frames found in %s.", opt_3d_path)
         return
+
+    if k_joints is None and fallback_k_joints is not None:
+        logger.warning(
+            "No data found in field '%s'; falling back to '%s'.",
+            k3d_field,
+            fallback_k3d_field,
+        )
+        frames_data = fallback_frames_data
+        k_joints = fallback_k_joints
+        k3d_field = fallback_k3d_field
 
     if k_joints is None:
         logger.warning("No k3d data found in any frame; nothing to save.")
@@ -69,6 +90,8 @@ def collect_processor(
     all_player_ids = set()
     for pid_k3d in frames_data:
         all_player_ids.update(pid_k3d.keys())
+    # only keep the first 1 player
+    # all_player_ids = set([1])
 
     logger.info(
         f"Building k3d arrays: {len(all_player_ids)} players, T={T} frames, k={k_joints} joints."
@@ -81,7 +104,8 @@ def collect_processor(
 
     for t, pid_k3d in enumerate(frames_data):
         for pid, k3d in pid_k3d.items():
-            result[pid][t] = k3d
+            if pid in result:
+                result[pid][t] = k3d
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:

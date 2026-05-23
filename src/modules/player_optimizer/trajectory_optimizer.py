@@ -52,6 +52,65 @@ def count_masked_nan(points: np.ndarray, mask: np.ndarray) -> int:
     return count
 
 
+class KalmanSmoother:
+
+    def __init__(
+        self,
+        process_noise: float = 1e-3,
+        measurement_noise: float = 5e-2,
+        logger: Union[None, str, logging.Logger] = None,
+    ) -> None:
+        self.process_noise = process_noise
+        self.measurement_noise = measurement_noise
+        self.logger = logger if logger is not None else logging.getLogger(__name__)
+
+    def _smooth_series(self, series: np.ndarray) -> np.ndarray:
+        valid_mask = ~np.isnan(series).any(axis=1)
+        if valid_mask.sum() < 2:
+            return series
+
+        smoothed = series.copy()
+        state = np.concatenate([series[valid_mask][0], np.zeros(series.shape[1], dtype=series.dtype)])
+        covariance = np.eye(series.shape[1] * 2, dtype=series.dtype)
+        transition = np.block([
+            [np.eye(series.shape[1], dtype=series.dtype), np.eye(series.shape[1], dtype=series.dtype)],
+            [np.zeros((series.shape[1], series.shape[1]), dtype=series.dtype), np.eye(series.shape[1], dtype=series.dtype)],
+        ])
+        observation = np.concatenate(
+            [np.eye(series.shape[1], dtype=series.dtype), np.zeros((series.shape[1], series.shape[1]), dtype=series.dtype)],
+            axis=1,
+        )
+        process_cov = np.eye(series.shape[1] * 2, dtype=series.dtype) * self.process_noise
+        measurement_cov = np.eye(series.shape[1], dtype=series.dtype) * self.measurement_noise
+
+        for frame_idx in range(series.shape[0]):
+            state = transition @ state
+            covariance = transition @ covariance @ transition.T + process_cov
+
+            if valid_mask[frame_idx]:
+                measurement = series[frame_idx]
+                innovation = measurement - observation @ state
+                innovation_cov = observation @ covariance @ observation.T + measurement_cov
+                kalman_gain = covariance @ observation.T @ np.linalg.pinv(innovation_cov)
+                state = state + kalman_gain @ innovation
+                covariance = (np.eye(covariance.shape[0], dtype=series.dtype) - kalman_gain @ observation) @ covariance
+                smoothed[frame_idx] = state[:series.shape[1]]
+
+        return smoothed
+
+    def smooth(self, trajectories: np.ndarray, valid_mask: np.ndarray) -> np.ndarray:
+        smoothed = trajectories.copy()
+        entity_count = trajectories.shape[1]
+        for entity_idx in range(entity_count):
+            entity_track = trajectories[:, entity_idx].copy()
+            entity_valid = valid_mask[:, entity_idx] > 0
+            if entity_valid.sum() < 2:
+                continue
+            entity_track[~entity_valid] = np.nan
+            smoothed[:, entity_idx] = self._smooth_series(entity_track)
+        return smoothed
+
+
 class NanInterpolation:
 
     def __init__(
@@ -312,13 +371,25 @@ class K3dFilter:
 
 class PlayerOptimizer(BaseModule):
 
-    def __init__(self, trajectory_range: int = 5) -> None:
+    def __init__(
+        self,
+        trajectory_range: int = 5,
+        kalman_process_noise: float = 1e-3,
+        kalman_measurement_noise: float = 5e-2,
+        one_player: bool = False,
+    ) -> None:
         super().__init__("PlayerOptimizer")
         self.traj_optim = TrajectoryOptimizer(
             n_max_frame=trajectory_range, logger=self.logger
         )
         self.nan_interp = NanInterpolation(logger=self.logger)
         self.filter = K3dFilter(logger=self.logger)
+        self.kalman_smoother = KalmanSmoother(
+            process_noise=kalman_process_noise,
+            measurement_noise=kalman_measurement_noise,
+            logger=self.logger,
+        )
+        self.one_player = one_player
 
     def _select_fields(self, use_reid: bool):
         if use_reid:
@@ -334,11 +405,68 @@ class PlayerOptimizer(BaseModule):
     ):
         if player_ids is not None:
             return list(player_ids)
-        all_ids = set()
+
+        # Count occurrences of each ID across all frames
+        id_counts = {}
         for mv_frame in mv_frames:
-            all_ids.update(getattr(mv_frame, location_field, {}).keys())
-            all_ids.update(getattr(mv_frame, k3d_field, {}).keys())
-        return list(all_ids)
+            # for pid in getattr(mv_frame, location_field, {}).keys():
+            #     id_counts[pid] = id_counts.get(pid, 0) + 1
+            for pid in getattr(mv_frame, k3d_field, {}).keys():
+                id_counts[pid] = id_counts.get(pid, 0) + 1
+
+        # Sort by count descending (most frequent first), assign new IDs starting from 1
+        sorted_ids = sorted(id_counts, key=lambda x: id_counts[x], reverse=True)
+        if len(sorted_ids) == 0:
+            self.logger.warning(
+                "No player IDs found in mv_frames for fields "
+                f"{location_field} and {k3d_field}. No optimization will be applied."
+            )
+            raise ValueError("No player IDs found in mv_frames for optimization.")
+        # if the most frequent id appears less than len(mv_frames) - 100, throw error
+        if id_counts[sorted_ids[0]] < len(mv_frames) - 100:
+            self.logger.error(
+                f"Most frequent player ID {sorted_ids[0]} appears only {id_counts[sorted_ids[0]]} times, which is less than total frames {len(mv_frames)} - 100. The ID remapping may be unreliable."
+            )
+            # raise ValueError("Most frequent player ID appears too few times, ID remapping may be unreliable.")
+
+        id_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted_ids, start=1)}
+        self.logger.info(f"Player ID remapping (old->new, sorted by occurrence): {id_mapping}")
+
+        # Remap IDs in all mv_frames for both fields
+        for mv_frame in mv_frames:
+            for field in (location_field, k3d_field):
+                old_dict = getattr(mv_frame, field, {})
+                if old_dict:
+                    setattr(mv_frame, field, {id_mapping[pid]: val for pid, val in old_dict.items()})
+
+        return list(range(1, len(sorted_ids) + 1))
+
+    def _keep_only_player_ids(
+        self,
+        mv_frames: List[MvFrame],
+        player_ids: List[int],
+    ) -> None:
+        selected_ids = set(player_ids)
+        fields_to_filter = [
+            "matched_player_location",
+            "matched_player_k3d",
+            "tracked_player_location",
+            "tracked_player_k3d",
+            "tracked_player_reid_info",
+        ]
+        for mv_frame in mv_frames:
+            for field_name in fields_to_filter:
+                field_value = getattr(mv_frame, field_name, None)
+                if isinstance(field_value, dict):
+                    setattr(
+                        mv_frame,
+                        field_name,
+                        {
+                            player_id: value
+                            for player_id, value in field_value.items()
+                            if player_id in selected_ids
+                        },
+                    )
 
     def _optimize_locations(
         self, mv_frames: List[MvFrame], player_ids: List[int], location_field: str
@@ -364,13 +492,17 @@ class PlayerOptimizer(BaseModule):
         mf_mp_loc = self.nan_interp.optimize_trajectory(mf_mp_loc, loc_mask)
         mf_mp_loc = self.filter.filter(mf_mp_loc)
         mf_mp_loc = self.nan_interp.optimize_trajectory(mf_mp_loc, loc_mask)
+        mf_mp_loc = self.kalman_smoother.smooth(mf_mp_loc, loc_mask)
         mf_mp_loc[np.isnan(mf_mp_loc)] = 0
 
+        optimized_mv_frames = []
         for i, mv_frame in enumerate(mv_frames):
             target_locations = getattr(mv_frame, location_field, {})
             for j, pid in enumerate(player_ids):
                 target_locations[pid] = mf_mp_loc[i, j]
             setattr(mv_frame, location_field, target_locations)
+            optimized_mv_frames.append(mv_frame)
+        return optimized_mv_frames
 
     def _optimize_k3d(
         self, mv_frames: List[MvFrame], player_ids: List[int], k3d_field: str
@@ -408,15 +540,24 @@ class PlayerOptimizer(BaseModule):
         xyz_flat = self.traj_optim.optimize_trajectory(xyz_flat, xyz_mask)
         xyz_flat = self.nan_interp.optimize_trajectory(xyz_flat, xyz_mask)
         xyz_flat = self.nan_interp.optimize_trajectory(xyz_flat, xyz_mask)
+        xyz_flat = self.kalman_smoother.smooth(xyz_flat, xyz_mask)
         xyz_flat[np.isnan(xyz_flat)] = 0
         xyz = xyz_flat.reshape(n_frame, len(player_ids), n_kps, 3)
 
+        conf[conf <= 0] = 0.1
+
+        optimized_mv_frames = []
         for f, mv_frame in enumerate(mv_frames):
             target_k3d = getattr(mv_frame, k3d_field, {})
             for j, pid in enumerate(player_ids):
-                if pid in target_k3d:
-                    target_k3d[pid] = np.concatenate([xyz[f, j], conf[f, j]], axis=-1)
+                # if pid in target_k3d:
+                target_k3d[pid] = np.concatenate([xyz[f, j], conf[f, j]], axis=-1)
             setattr(mv_frame, k3d_field, target_k3d)
+            optimized_mv_frames.append(mv_frame)
+
+        return optimized_mv_frames
+            
+            
 
     def optimize(
         self, mv_frames: List[MvFrame], player_ids=None, use_reid: bool = True
@@ -426,12 +567,17 @@ class PlayerOptimizer(BaseModule):
             mv_frames, location_field, k3d_field, player_ids
         )
 
-        self._optimize_locations(mv_frames, player_ids, location_field)
+        if self.one_player and len(player_ids) > 0:
+            player_ids = player_ids[:1]
+            self._keep_only_player_ids(mv_frames, player_ids)
+
         if not use_reid:
-            self._optimize_k3d(mv_frames, player_ids, k3d_field)
+            optimized_mv_frames = self._optimize_k3d(mv_frames, player_ids, k3d_field)
+        else:
+            optimized_mv_frames = self._optimize_locations(mv_frames, player_ids, location_field)
 
         # backward compatibility for downstream analysis/visualization modules
-        for mv_frame in mv_frames:
+        for mv_frame in optimized_mv_frames:
             mv_frame.player_location = getattr(mv_frame, location_field, {})
 
-        return mv_frames, player_ids
+        return optimized_mv_frames, player_ids

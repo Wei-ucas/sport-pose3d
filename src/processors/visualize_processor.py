@@ -9,13 +9,18 @@ import numpy as np
 
 from src.data_io.path_config import GamePath
 
-# COCO-17 skeleton connections (zero-indexed)
-COCO17_SKELETON = [
-    [0, 1], [0, 2], [1, 3], [2, 4],           # face / ears
-    [5, 7], [7, 9], [6, 8], [8, 10],           # arms
-    [5, 6],                                     # shoulders
-    [5, 11], [6, 12], [11, 12],                 # torso
-    [11, 13], [13, 15], [12, 14], [14, 16],     # legs
+# Body25 skeleton connections (zero-indexed)
+BODY25_SKELETON = [
+  [0, 1],
+  [1, 2], [2, 3], [3, 4],
+  [1, 5], [5, 6], [6, 7],
+  [1, 8],
+  [8, 9], [9, 10], [10, 11],
+  [8, 12], [12, 13], [13, 14],
+  [0, 15], [15, 17],
+  [0, 16], [16, 18],
+  [14, 19], [19, 20], [14, 21],
+  [11, 22], [22, 23], [11, 24],
 ]
 
 PLAYER_COLORS = [
@@ -411,7 +416,7 @@ def _build_scene_data(
         "T": T,
         "K": K,
         "fps": float(fps),
-        "skeleton": COCO17_SKELETON,
+        "skeleton": BODY25_SKELETON,
         "players": players,
         "court": {"width": float(court_width), "length": float(court_length)},
     }
@@ -423,7 +428,7 @@ def _build_scene_data(
 
 def visualize_processor(data_path_cfg: GamePath, fps: float = None) -> None:
     """
-    Generate a self-contained HTML 3D skeleton viewer from k3d.pkl.
+    Generate a self-contained HTML 3D skeleton viewer from the model-tagged k3d file.
 
     The HTML file embeds all joint data as base64-encoded Float32Arrays and uses
     Three.js (loaded from CDN) for interactive 3D rendering.  Open the generated
@@ -435,12 +440,12 @@ def visualize_processor(data_path_cfg: GamePath, fps: float = None) -> None:
     """
     logger = logging.getLogger("visualize_processor")
 
-    output_html = os.path.join(data_path_cfg.output_dir, "k3d_vis.html")
+    output_html = data_path_cfg.get_output_artifact_path("k3d_vis", ".html")
     if os.path.exists(output_html):
         logger.info(f"Visualization already exists at {output_html}, skipping.")
         return
 
-    k3d_path = os.path.join(data_path_cfg.output_dir, "k3d.pkl")
+    k3d_path = data_path_cfg.find_output_artifact_path("k3d", ".pkl")
     if not os.path.exists(k3d_path):
         logger.error(
             f"k3d.pkl not found at {k3d_path}. Run collect_processor first."

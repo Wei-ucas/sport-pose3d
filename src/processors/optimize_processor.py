@@ -13,6 +13,9 @@ MAX_BATCH_SIZE = 10000  # Maximum number of frames to process in a single batch
 def optimize_processor(
     data_path_cfg: GamePath,
     use_reid: bool = True,
+    kalman_process_noise: float = 1e-3,
+    kalman_measurement_noise: float = 5e-2,
+    one_player: bool = False,
 ):
     if os.path.exists(data_path_cfg.get_prediction_save_path("3d-opt")):
         # If the optimized path already exists, skip the optimization
@@ -49,7 +52,12 @@ def optimize_processor(
 
     player_id2name = data_path_cfg.get_player_info()
 
-    optimizer = PlayerOptimizer(trajectory_range=5)
+    optimizer = PlayerOptimizer(
+        trajectory_range=5,
+        kalman_process_noise=kalman_process_noise,
+        kalman_measurement_noise=kalman_measurement_noise,
+        one_player=one_player,
+    )
 
     frame_list = []
 

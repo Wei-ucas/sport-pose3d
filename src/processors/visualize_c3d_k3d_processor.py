@@ -12,12 +12,17 @@ from src.data_io.path_config import GamePath
 from src.processors.c3d_alignment_processor import c3d_alignment_processor
 
 
-COCO17_SKELETON = [
-    [0, 1], [0, 2], [1, 3], [2, 4],
-    [5, 7], [7, 9], [6, 8], [8, 10],
-    [5, 6],
-    [5, 11], [6, 12], [11, 12],
-    [11, 13], [13, 15], [12, 14], [14, 16],
+BODY25_SKELETON = [
+  [0, 1],
+  [1, 2], [2, 3], [3, 4],
+  [1, 5], [5, 6], [6, 7],
+  [1, 8],
+  [8, 9], [9, 10], [10, 11],
+  [8, 12], [12, 13], [13, 14],
+  [0, 15], [15, 17],
+  [0, 16], [16, 18],
+  [14, 19], [19, 20], [14, 21],
+  [11, 22], [22, 23], [11, 24],
 ]
 
 PLAYER_COLORS = [
@@ -515,7 +520,7 @@ def _build_scene_data(k3d_result: dict, alignment_report: dict, alignment_result
         "T": T,
         "K": K,
         "fps": float(fps),
-        "skeleton": COCO17_SKELETON,
+        "skeleton": BODY25_SKELETON,
         "players": players,
         "court": {"width": float(court_width), "length": float(court_length)},
         "c3d": {
@@ -540,10 +545,10 @@ def _build_scene_data(k3d_result: dict, alignment_report: dict, alignment_result
 def visualize_c3d_k3d_processor(data_path_cfg: GamePath, fps: float = None, rerun_alignment_if_missing: bool = True):
     logger = logging.getLogger("visualize_c3d_k3d_processor")
 
-    output_html = os.path.join(data_path_cfg.output_dir, "c3d_k3d_vis.html")
-    k3d_path = os.path.join(data_path_cfg.output_dir, "k3d.pkl")
-    alignment_report_path = os.path.join(data_path_cfg.output_dir, "c3d_alignment_report.json")
-    alignment_result_path = os.path.join(data_path_cfg.output_dir, "c3d_alignment.pkl")
+    output_html = data_path_cfg.get_output_artifact_path("c3d_k3d_vis", ".html")
+    k3d_path = data_path_cfg.find_output_artifact_path("k3d", ".pkl")
+    alignment_report_path = data_path_cfg.find_output_artifact_path("c3d_alignment_report", ".json")
+    alignment_result_path = data_path_cfg.find_output_artifact_path("c3d_alignment", ".pkl")
 
     if not os.path.exists(k3d_path):
         raise FileNotFoundError(f"k3d.pkl not found: {k3d_path}")

@@ -53,8 +53,10 @@ games/
 cpks/
 cpks*
 work-dirs/
-exported-results/
+exported-results*/
+exported_results*/
 *.zip
+*.tar.gz
 
 
 # Misc

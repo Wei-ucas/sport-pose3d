@@ -86,6 +86,7 @@ class Frame:
             player_id: ReID后的球员ID，整场比赛中球员ID不会改变，初始化时可以为空，开始时利用只能利用tracking_id区分球员
             bbox (np.ndarray (5,)): 球员在图像中的位置，2d图片坐标，[x1, y1, x2, y2, score]
             pose (np.ndarray (17, 3)): 球员的姿态，16个关键点的2d图片坐标，[[x, y, score],...]
+                        pose (np.ndarray (N, 3)): 球员的姿态关键点，[[x, y, score],...]
             location (np.ndarray (3,)): 球员的位置，3d世界坐标，[x, y, z], 单位m,一般是球员的脚底中心点 （考虑将球场平面作为z=0平面）
             ball_holding (bool): 是否持球
         """
@@ -145,6 +146,12 @@ class Frame:
                         (0, 0, 0),
                         1)
             if show_pose and player.pose is not None:
-                image = visualize_joints2d(image, player.pose, convention='coco', threshold=0.3)
+                    if player.pose.shape[0] == 25:
+                        convention = 'openpose_25'
+                    elif player.pose.shape[0] == 26:
+                        convention = 'halpe26'
+                    else:
+                        convention = 'coco'
+                    image = visualize_joints2d(image, player.pose, convention=convention, threshold=0.3)
 
         return image
