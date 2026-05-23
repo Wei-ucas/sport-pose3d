@@ -1,0 +1,35 @@
+name: sport-cap
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pip>=23
+  - ffmpeg
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu116
+      - --find-links https://download.openmmlab.com/mmcv/dist/cu116/torch1.13/index.html
+      - numpy==1.24.4
+      - scipy==1.10.1
+      - pandas==2.0.3
+      - opencv-contrib-python==4.9.0.80
+      - pillow==10.2.0
+      - pyyaml==6.0.1
+      - tqdm==4.65.2
+      - c3d==0.5.2
+      - ffmpeg-python==0.2.0
+      - filterpy==1.4.5
+      - lap==0.4.0
+      - imageio==2.34.1
+      - imageio-ffmpeg==0.5.1
+      - yacs==0.1.8
+      - mediapipe==0.10.11
+      - torch==1.13.0+cu116
+      - torchvision==0.14.0+cu116
+      - torchaudio==0.13.0+cu116
+      - openmim==0.3.9
+      - mmengine==0.8.4
+      - mmcv==2.0.1
+      - mmdet==3.2.0
+      - mmpose==1.3.1
+      - mmdeploy-runtime-gpu==1.2.0
